@@ -84,7 +84,7 @@
             </div>
             <div>
                 <h2 id="auth-title" class="text-2xl font-extrabold text-brand-dark">Ajandanım'a Hoş Geldin</h2>
-                <p id="auth-subtitle" class="text-xs text-brand-muted mt-1">Kişisel ajandanı güvenle saklamak için giriş yap veya hesap oluştur.</p>
+                <p id="auth-subtitle" class="text-xs text-brand-muted mt-1">Devam etmek için giriş yap veya yeni bir hesap oluştur.</p>
             </div>
             
             <div id="auth-error" class="hidden p-3 bg-red-50 border border-red-200 text-red-600 text-xs rounded-xl font-medium"></div>
@@ -116,7 +116,7 @@
     <div id="auth-status-bar" class="bg-brand-dark text-white text-[11px] px-4 py-1.5 flex justify-between items-center z-50">
         <span id="auth-user-info"><i class="fas fa-spinner fa-spin mr-1"></i> Oturum kontrol ediliyor...</span>
         <div class="flex items-center gap-3">
-            <span id="sync-indicator" class="text-brand-secondary"><i class="fas fa-cloud"></i> Bulut Senkronize</span>
+            <span id="sync-indicator" class="text-brand-secondary"><i class="fas fa-cloud"></i> Buluta Bağlı</span>
             <button onclick="handleLogout()" class="text-gray-300 hover:text-white underline text-[10px]">Çıkış Yap</button>
         </div>
     </div>
@@ -420,12 +420,12 @@
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         let app, db, auth, userId = null;
-        let isCloudSynced = false;
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'ajandanim-app';
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "demo-key", authDomain: "demo.firebaseapp.com", projectId: "demo-project" };
 
         let isRegisterMode = false;
         let unsubscribeSnapshot = null;
+        let isSavingToCloud = false;
 
         const defaultVerses = [
             "Rabbiniz şöyle buyurdu: Bana dua edin, duanıza cevap vereyim.",
@@ -508,7 +508,7 @@
 
             if(isRegisterMode) {
                 title.innerText = "Yeni Hesap Oluştur";
-                subtitle.innerText = "Kişisel ajandanı bulutta saklamak için önce kayıt ol.";
+                subtitle.innerText = "Kişisel ajandanı bulutta saklamak için kayıt ol.";
                 submitBtn.innerText = "Kayıt Ol ✨";
                 toggleText.innerText = "Zaten hesabın var mı?";
                 toggleBtn.innerText = "Giriş Yap";
@@ -540,7 +540,7 @@
                 errDiv.classList.add('hidden');
                 
                 if (!auth || !firebaseConfig.apiKey || firebaseConfig.apiKey === "demo-key" || firebaseConfig.apiKey.includes("not-valid")) {
-                    errDiv.innerText = "Firebase yapılandırması eksik. Lütfen geçerli Firebase kimlik bilgileri sağlayın.";
+                    errDiv.innerText = "Firebase yapılandırması eksik. Lütfen geçerli kimlik bilgileri sağlayın.";
                     errDiv.classList.remove('hidden');
                     return;
                 }
@@ -562,7 +562,7 @@
                 if (error.code === 'auth/email-already-in-use') msg = "Bu e-posta adresi zaten kayıtlı. Lütfen giriş yapın.";
                 else if (error.code === 'auth/invalid-email') msg = "Geçersiz e-posta adresi.";
                 else if (error.code === 'auth/weak-password') msg = "Şifre en az 6 karakter olmalıdır.";
-                else if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') msg = "Bu e-posta ile kayıtlı bir hesap bulunamadı. Önce Kayıt Olmalısınız.";
+                else if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') msg = "Bu e-posta ile kayıtlı hesap bulunamadı. Önce Kayıt Olmalısınız.";
                 else if (error.code === 'auth/wrong-password') msg = "Şifre yanlış.";
                 
                 errDiv.innerText = msg;
@@ -598,8 +598,8 @@
                         const docRef = doc(db, 'artifacts', appId, 'users', userId, 'data', 'ajanda');
                         
                         if(unsubscribeSnapshot) unsubscribeSnapshot();
-                        let isInitialLoad = true;
                         unsubscribeSnapshot = onSnapshot(docRef, (docSnap) => {
+                            if (isSavingToCloud) return; // Prevent local loop
                             if (docSnap.exists()) {
                                 const remoteData = docSnap.data();
                                 if (remoteData && remoteData.state) {
@@ -607,8 +607,7 @@
                                     checkDailyReset();
                                     renderAll();
                                 }
-                            } else if (isInitialLoad) {
-                                isInitialLoad = false;
+                            } else {
                                 saveStateToCloud();
                             }
                         }, (error) => {
@@ -633,18 +632,19 @@
 
         async function saveStateToCloud() {
             if (!db || !userId) return;
-            if (isCloudSynced) return; // Çift tetiklemeleri önle
-            isCloudSynced = true;
             try {
+                isSavingToCloud = true;
                 const docRef = doc(db, 'artifacts', appId, 'users', userId, 'data', 'ajanda');
                 await setDoc(docRef, { state: state, updatedAt: new Date().toISOString() });
                 const indicator = document.getElementById('sync-indicator');
                 indicator.innerHTML = `<i class="fas fa-cloud-upload-alt text-green-400"></i> Kaydedildi`;
-                setTimeout(() => { indicator.innerHTML = `<i class="fas fa-cloud"></i> Bulut Senkronize`; }, 2000);
+                setTimeout(() => { 
+                    indicator.innerHTML = `<i class="fas fa-cloud"></i> Bulut Senkronize`; 
+                    isSavingToCloud = false;
+                }, 1500);
             } catch(e) {
+                isSavingToCloud = false;
                 console.warn("Cloud save error:", e);
-            } finally {
-                setTimeout(() => { isCloudSynced = false; }, 1000);
             }
         }
 
