@@ -83,26 +83,41 @@
                 <i class="fas fa-book-open"></i>
             </div>
             <div>
-                <h2 class="text-2xl font-extrabold text-brand-dark">Ajandanım'a Hoş Geldin</h2>
-                <p class="text-xs text-brand-muted mt-1">Devam etmek için adını gir ve ajandana başla.</p>
+                <h2 id="auth-title" class="text-2xl font-extrabold text-brand-dark">Ajandanım'a Hoş Geldin</h2>
+                <p id="auth-subtitle" class="text-xs text-brand-muted mt-1">Cihazlar arası bulut senkronizasyonu için giriş yap.</p>
             </div>
             
+            <div id="auth-error" class="hidden p-3 bg-red-50 border border-red-200 text-red-600 text-xs rounded-xl font-medium"></div>
+
             <div class="space-y-4 text-left">
-                <div class="space-y-1">
+                <div id="name-field-container" class="hidden space-y-1">
                     <label class="block text-xs font-bold text-brand-dark">Adın / İsim</label>
-                    <input type="text" id="setup-name" placeholder="Örn: Ayşe Sena" class="w-full p-3 border border-brand-border rounded-xl bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/50 text-sm font-medium">
+                    <input type="text" id="auth-name" placeholder="Örn: Ayşe Sena" class="w-full p-3 border border-brand-border rounded-xl bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/50 text-sm font-medium">
+                </div>
+                <div class="space-y-1">
+                    <label class="block text-xs font-bold text-brand-dark">E-posta Adresi</label>
+                    <input type="email" id="auth-email" placeholder="ornek@mail.com" class="w-full p-3 border border-brand-border rounded-xl bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/50 text-sm font-medium">
+                </div>
+                <div class="space-y-1">
+                    <label class="block text-xs font-bold text-brand-dark">Şifre</label>
+                    <input type="password" id="auth-password" placeholder="••••••••" class="w-full p-3 border border-brand-border rounded-xl bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/50 text-sm font-medium">
                 </div>
             </div>
 
-            <button onclick="handleLocalSetup()" class="w-full py-3 bg-brand-primary text-white rounded-xl text-sm font-bold shadow-md hover:bg-opacity-90 transition">Ajandama Gir ✨</button>
+            <button id="auth-submit-btn" onclick="handleAuthSubmit()" class="w-full py-3 bg-brand-primary text-white rounded-xl text-sm font-bold shadow-md hover:bg-opacity-90 transition">Giriş Yap 🚀</button>
+            
+            <div class="text-xs text-brand-muted pt-2 border-t border-brand-border">
+                <span id="auth-toggle-text">Hesabın yok mu?</span>
+                <button onclick="toggleAuthMode()" id="auth-toggle-btn" class="font-bold text-brand-primary ml-1 hover:underline">Kayıt Ol</button>
+            </div>
         </div>
     </div>
 
     <div id="auth-status-bar" class="bg-brand-dark text-white text-[11px] px-4 py-1.5 flex justify-between items-center z-50">
-        <span id="auth-user-info"><i class="fas fa-user text-brand-secondary mr-1"></i> Yerel Oturum Açık</span>
+        <span id="auth-user-info"><i class="fas fa-spinner fa-spin mr-1"></i> Bulut senkronizasyonu başlatılıyor...</span>
         <div class="flex items-center gap-3">
-            <span class="text-brand-secondary"><i class="fas fa-hdd"></i> Cihazda Güvenle Saklanıyor</span>
-            <button onclick="handleResetData()" class="text-gray-300 hover:text-white underline text-[10px]">Verileri Sıfırla</button>
+            <span id="sync-indicator" class="text-brand-secondary"><i class="fas fa-cloud"></i> Buluta Bağlı</span>
+            <button onclick="handleLogout()" class="text-gray-300 hover:text-white underline text-[10px]">Çıkış Yap</button>
         </div>
     </div>
 
@@ -399,8 +414,18 @@
 
     </main>
 
-    <script>
-        const STORAGE_KEY = 'ajandanım_local_state_v2';
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        let app, db, auth, userId = null;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'ajandanım-cloud-sync';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "demo-key", authDomain: "demo.firebaseapp.com", projectId: "demo-project" };
+
+        let isRegisterMode = false;
+        let unsubscribeSnapshot = null;
+        let isSyncingFromCloud = false;
 
         const defaultVerses = [
             "Rabbiniz şöyle buyurdu: Bana dua edin, duanıza cevap vereyim.",
@@ -472,38 +497,150 @@
 
         let state = JSON.parse(JSON.stringify(defaultState));
 
-        function loadStateFromLocal() {
-            const saved = localStorage.getItem(STORAGE_KEY);
-            if(saved) {
-                try {
-                    state = JSON.parse(saved);
-                } catch(e) {
-                    console.error("Local data parse error:", e);
+        window.toggleAuthMode = function() {
+            isRegisterMode = !isRegisterMode;
+            const title = document.getElementById('auth-title');
+            const subtitle = document.getElementById('auth-subtitle');
+            const submitBtn = document.getElementById('auth-submit-btn');
+            const toggleText = document.getElementById('auth-toggle-text');
+            const toggleBtn = document.getElementById('auth-toggle-btn');
+            const nameContainer = document.getElementById('name-field-container');
+
+            if(isRegisterMode) {
+                title.innerText = "Yeni Hesap Oluştur";
+                subtitle.innerText = "Cihazlar arası bulut senkronizasyonu için kayıt ol.";
+                submitBtn.innerText = "Kayıt Ol ✨";
+                toggleText.innerText = "Zaten hesabın var mı?";
+                toggleBtn.innerText = "Giriş Yap";
+                nameContainer.classList.remove('hidden');
+            } else {
+                title.innerText = "Ajandanım'a Hoş Geldin";
+                subtitle.innerText = "Cihazlar arası bulut senkronizasyonu için giriş yap.";
+                submitBtn.innerText = "Giriş Yap 🚀";
+                toggleText.innerText = "Hesabın yok mu?";
+                toggleBtn.innerText = "Kayıt Ol";
+                nameContainer.classList.add('hidden');
+            }
+            document.getElementById('auth-error').classList.add('hidden');
+        }
+
+        window.handleAuthSubmit = async function() {
+            const email = document.getElementById('auth-email').value.trim();
+            const password = document.getElementById('auth-password').value;
+            const nameInput = document.getElementById('auth-name').value.trim();
+            const errDiv = document.getElementById('auth-error');
+
+            if(!email || !password) {
+                errDiv.innerText = "Lütfen e-posta ve şifrenizi girin.";
+                errDiv.classList.remove('hidden');
+                return;
+            }
+
+            try {
+                errDiv.classList.add('hidden');
+                
+                if (!auth || !firebaseConfig.apiKey || firebaseConfig.apiKey === "demo-key" || firebaseConfig.apiKey.includes("not-valid")) {
+                    userId = "demo-user-" + email.replace(/[^a-zA-Z0-9]/g, '');
+                    if(nameInput) state.profile.name = nameInput;
+                    document.getElementById('auth-screen').style.display = 'none';
+                    document.getElementById('auth-user-info').innerHTML = `<i class="fas fa-user-check text-green-400 mr-1"></i> ${email}`;
+                    checkDailyReset();
+                    renderAll();
+                    return;
                 }
+
+                if(isRegisterMode) {
+                    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                    userId = userCredential.user.uid;
+                    if(nameInput) state.profile.name = nameInput;
+                    await saveStateToCloud();
+                } else {
+                    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                    userId = userCredential.user.uid;
+                }
+            } catch (error) {
+                errDiv.innerText = "İşlem başarısız: " + error.message;
+                errDiv.classList.remove('hidden');
+            }
+        }
+
+        window.handleLogout = async function() {
+            if(unsubscribeSnapshot) unsubscribeSnapshot();
+            try {
+                if (auth) await signOut(auth);
+                document.getElementById('auth-screen').style.display = 'flex';
+            } catch(e) {
+                document.getElementById('auth-screen').style.display = 'flex';
+            }
+        }
+
+        async function initFirebase() {
+            try {
+                if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "demo-key" || firebaseConfig.apiKey.includes("not-valid")) {
+                    throw new Error("Demo mode");
+                }
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        document.getElementById('auth-screen').style.display = 'none';
+                        document.getElementById('auth-user-info').innerHTML = `<i class="fas fa-user-check text-green-400 mr-1"></i> ${user.email}`;
+
+                        const docRef = doc(db, 'artifacts', appId, 'users', userId, 'data', 'ajanda');
+                        
+                        if(unsubscribeSnapshot) unsubscribeSnapshot();
+                        unsubscribeSnapshot = onSnapshot(docRef, (docSnap) => {
+                            if (docSnap.exists()) {
+                                const remoteData = docSnap.data();
+                                if (remoteData && remoteData.state && !docSnap.metadata.hasPendingWrites) {
+                                    isSyncingFromCloud = true;
+                                    state = remoteData.state;
+                                    checkDailyReset();
+                                    renderAll();
+                                    isSyncingFromCloud = false;
+                                }
+                            } else {
+                                saveStateToCloud();
+                            }
+                        }, (error) => {
+                            console.error("Firestore okuma hatası:", error);
+                        });
+
+                    } else {
+                        document.getElementById('auth-screen').style.display = 'flex';
+                    }
+                });
+
+            } catch (err) {
+                console.info("Bulut modu pasif / Yerel demo oturum devrede.");
+                document.getElementById('auth-user-info').innerHTML = `<i class="fas fa-cloud-moon text-brand-secondary mr-1"></i> Çevrimdışı / Demo Mod`;
             }
         }
 
         window.saveState = function() {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
             renderAll();
+            saveStateToCloud();
         }
 
-        window.handleLocalSetup = function() {
-            const nameInput = document.getElementById('setup-name').value.trim();
-            if(nameInput) {
-                state.profile.name = nameInput;
+        async function saveStateToCloud() {
+            if (isSyncingFromCloud) return;
+            if (!db || !userId) {
+                localStorage.setItem('ajandanım_local_' + (userId || 'guest'), JSON.stringify(state));
+                return;
             }
-            saveState();
-            document.getElementById('auth-screen').style.display = 'none';
-        }
-
-        window.handleResetData = function() {
-            openConfirm("Tüm verileriniz sıfırlanacak ve fabrika ayarlarına dönecektir. Emin misiniz?", () => {
-                localStorage.removeItem(STORAGE_KEY);
-                state = JSON.parse(JSON.stringify(defaultState));
-                saveState();
-                window.location.reload();
-            });
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'users', userId, 'data', 'ajanda');
+                await setDoc(docRef, { state: state, updatedAt: new Date().toISOString() });
+                const indicator = document.getElementById('sync-indicator');
+                indicator.innerHTML = `<i class="fas fa-cloud-upload-alt text-green-400"></i> Bulut Senkronize`;
+                setTimeout(() => { indicator.innerHTML = `<i class="fas fa-cloud"></i> Buluta Bağlı`; }, 2000);
+            } catch(e) {
+                console.error("Cloud save error:", e);
+                localStorage.setItem('ajandanım_local_' + userId, JSON.stringify(state));
+            }
         }
 
         function checkDailyReset() {
@@ -513,7 +650,7 @@
                     state.dailyHabits.forEach(h => h.completed = false);
                 }
                 state.lastHabitResetDate = todayStr;
-                saveState();
+                saveStateToCloud();
             }
         }
 
@@ -1368,7 +1505,6 @@
         function renderAll() {
             if(state.profile) {
                 document.getElementById('header-name').innerText = state.profile.name;
-                document.getElementById('setup-name').value = state.profile.name;
             }
             setDate();
             
@@ -1390,13 +1526,7 @@
         }
 
         window.onload = () => {
-            loadStateFromLocal();
-            checkDailyReset();
-            renderAll();
-            // If already set up once, hide setup screen or keep it welcoming
-            if(state.profile && state.profile.name) {
-                document.getElementById('auth-screen').style.display = 'none';
-            }
+            initFirebase();
         };
     </script>
 </body>
