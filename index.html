@@ -84,7 +84,7 @@
             </div>
             <div>
                 <h2 id="auth-title" class="text-2xl font-extrabold text-brand-dark">Ajandanım'a Hoş Geldin</h2>
-                <p id="auth-subtitle" class="text-xs text-brand-muted mt-1">Bulut üzerinden güvenle senkronize etmek için giriş yap.</p>
+                <p id="auth-subtitle" class="text-xs text-brand-muted mt-1">Kişisel ajanını bulutta ve cihazında güvenle saklamak için giriş yap.</p>
             </div>
             
             <div id="auth-error" class="hidden p-3 bg-red-50 border border-red-200 text-red-600 text-xs rounded-xl font-medium"></div>
@@ -92,7 +92,7 @@
             <div class="space-y-4 text-left">
                 <div id="name-field-container" class="hidden space-y-1">
                     <label class="block text-xs font-bold text-brand-dark">Adın / İsim</label>
-                    <input type="text" id="auth-name" placeholder="Örn: Ajandanım Kullanıcısı" class="w-full p-3 border border-brand-border rounded-xl bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/50 text-sm font-medium">
+                    <input type="text" id="auth-name" placeholder="Örn: Ayşe Sena" class="w-full p-3 border border-brand-border rounded-xl bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/50 text-sm font-medium">
                 </div>
                 <div class="space-y-1">
                     <label class="block text-xs font-bold text-brand-dark">E-posta Adresi</label>
@@ -114,9 +114,9 @@
     </div>
 
     <div id="auth-status-bar" class="bg-brand-dark text-white text-[11px] px-4 py-1.5 flex justify-between items-center z-50">
-        <span id="auth-user-info"><i class="fas fa-spinner fa-spin mr-1"></i> Bulut oturumu kontrol ediliyor...</span>
+        <span id="auth-user-info"><i class="fas fa-spinner fa-spin mr-1"></i> Oturum kontrol ediliyor...</span>
         <div class="flex items-center gap-3">
-            <span id="sync-indicator" class="text-brand-secondary"><i class="fas fa-cloud"></i> Buluta Bağlı</span>
+            <span id="sync-indicator" class="text-brand-secondary"><i class="fas fa-cloud"></i> Senkronize</span>
             <button onclick="handleLogout()" class="text-gray-300 hover:text-white underline text-[10px]">Çıkış Yap</button>
         </div>
     </div>
@@ -150,7 +150,7 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
             <div class="flex flex-col items-center md:items-start text-center md:text-left">
                 <h1 class="text-2xl font-extrabold flex items-center gap-2 text-brand-dark">
-                    <span id="header-name">Ajandanım</span>
+                    <span id="header-name">Ayşe Sena</span> Ajandası
                     <button onclick="editProfile()" class="text-[10px] text-brand-muted hover:text-brand-primary bg-white px-2 py-1 rounded shadow-sm border border-brand-border"><i class="fas fa-pen"></i></button>
                 </h1>
                 <p class="text-xs font-medium text-brand-secondary mt-1" id="header-date"></p>
@@ -437,7 +437,7 @@
         ];
 
         const defaultState = {
-            profile: { name: "Ajandanım" },
+            profile: { name: "Ayşe Sena" },
             monthlySongs: [
                 { id: 'ms1', month: "Eylül 2026", song: "Max Richter - On the Nature of Daylight" }
             ],
@@ -459,10 +459,10 @@
                 { id: 'sc2', day: "Çarşamba", time: "14:00 - 16:00", name: "Eğitim Psikolojisi" }
             ],
             furkan: [
-                { id: 'f1', date: "1. Hafta (10 Eyl)", presenter: "Kullanıcı", topic: "Giriş ve 1. Bölüm", ezber: "Ezberlendi" }
+                { id: 'f1', date: "1. Hafta (10 Eyl)", presenter: "Ayşe Sena", topic: "Giriş ve 1. Bölüm", ezber: "Ezberlendi" }
             ],
             ihya: [
-                { id: 'i1', date: "1. Hafta (12 Eyl)", presenter: "Kullanıcı", topic: "İlim Kitabı", bab: "1. Bab" }
+                { id: 'i1', date: "1. Hafta (12 Eyl)", presenter: "Ayşe Sena", topic: "İlim Kitabı", bab: "1. Bab" }
             ],
             health: {
                 periods: [
@@ -539,8 +539,15 @@
                 errDiv.classList.add('hidden');
                 
                 if (!auth || !firebaseConfig.apiKey || firebaseConfig.apiKey === "demo-key" || firebaseConfig.apiKey.includes("not-valid")) {
-                    userId = "demo-user-" + email.replace(/[^a-zA-Z0-9]/g, '');
+                    userId = "user-" + email.replace(/[^a-zA-Z0-9]/g, '');
                     if(nameInput) state.profile.name = nameInput;
+                    
+                    // Load local storage if exists
+                    const localData = localStorage.getItem('akademikAjandaData_' + userId);
+                    if (localData) {
+                        try { state = JSON.parse(localData); } catch(e) {}
+                    }
+
                     document.getElementById('auth-screen').style.display = 'none';
                     document.getElementById('auth-user-info').innerHTML = `<i class="fas fa-user-check text-green-400 mr-1"></i> ${email}`;
                     checkDailyReset();
@@ -575,7 +582,11 @@
                 }
             } catch (error) {
                 console.warn("Auth fallback:", error);
-                userId = "guest-user-" + Date.now();
+                userId = "user-" + email.replace(/[^a-zA-Z0-9]/g, '');
+                const localData = localStorage.getItem('akademikAjandaData_' + userId);
+                if (localData) {
+                    try { state = JSON.parse(localData); } catch(e) {}
+                }
                 document.getElementById('auth-screen').style.display = 'none';
                 checkDailyReset();
                 renderAll();
@@ -619,6 +630,11 @@
                                     renderAll();
                                 }
                             } else {
+                                // Check local cache if cloud doc doesn't exist yet
+                                const localData = localStorage.getItem('akademikAjandaData_' + userId);
+                                if (localData) {
+                                    try { state = JSON.parse(localData); } catch(e) {}
+                                }
                                 saveStateToCloud();
                             }
                         }, (error) => {
@@ -631,8 +647,8 @@
                 });
 
             } catch (err) {
-                console.info("Bulut modu pasif / Yerel oturum devrede.");
-                document.getElementById('auth-user-info').innerHTML = `<i class="fas fa-shield-alt text-brand-secondary mr-1"></i> Ajandanım Modu`;
+                console.info("Bulut modu pasif / Yerel depolama ve senkronizasyon devrede.");
+                document.getElementById('auth-user-info').innerHTML = `<i class="fas fa-shield-alt text-brand-secondary mr-1"></i> Ajandanım Güvenli Mod`;
             }
         }
 
@@ -642,8 +658,11 @@
         }
 
         async function saveStateToCloud() {
+            if (userId) {
+                localStorage.setItem('akademikAjandaData_' + userId, JSON.stringify(state));
+            }
+
             if (!db || !userId) {
-                localStorage.setItem('akademikAjandaData_' + (userId || 'guest'), JSON.stringify(state));
                 return;
             }
             try {
@@ -651,9 +670,9 @@
                 await setDoc(docRef, { state: state, updatedAt: new Date().toISOString() });
                 const indicator = document.getElementById('sync-indicator');
                 indicator.innerHTML = `<i class="fas fa-cloud-upload-alt text-green-400"></i> Kaydedildi`;
-                setTimeout(() => { indicator.innerHTML = `<i class="fas fa-cloud"></i> Buluta Bağlı`; }, 2000);
+                setTimeout(() => { indicator.innerHTML = `<i class="fas fa-cloud"></i> Senkronize`; }, 2000);
             } catch(e) {
-                localStorage.setItem('akademikAjandaData_' + userId, JSON.stringify(state));
+                console.warn("Cloud save fallback:", e);
             }
         }
 
